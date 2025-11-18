@@ -1,10 +1,14 @@
-# anten_tasarim_opt.py
+# anten_tasarim.py
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import math
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
+
+# Optimize modülünü içe aktarırken optimize_yagi fonksiyonunun imzasını kontrol ettik.
+from yagi_optimizasyon_modulu import optimize_yagi
+
 
 class AntenTasarimUygulamasi:
     def __init__(self, root):
@@ -13,7 +17,7 @@ class AntenTasarimUygulamasi:
         self.root.geometry("1150x800")
         self.root.minsize(900, 650)
 
-        self.c = 299792458.0
+        self.c = 299792458.0 # Işık hızı (m/s)
 
         self.bantlar = {
             "160m (1.8-2.0 MHz)": 1.9,
@@ -85,6 +89,7 @@ class AntenTasarimUygulamasi:
         optimize_btn = ttk.Button(btn_frame, text="Yagi Optimize Et", command=self.yagi_optimize_dialog)
         optimize_btn.grid(row=0, column=3, sticky="e", padx=6)
 
+
         main_pane = ttk.Panedwindow(self.root, orient=tk.HORIZONTAL)
         main_pane.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -119,16 +124,12 @@ class AntenTasarimUygulamasi:
 
     def _anten_tipi_degisti(self):
         if self.anten_tipi.get() == "Yagi-Uda":
-            try:
-                self.yagi_frame.grid()
-            except Exception:
-                pass
+            # Yagi frame'ini göster
+            self.yagi_frame.grid(row=3, column=0, columnspan=8, sticky="we", pady=(10,0))
             self.status_var.set("Yagi-Uda seçildi.")
         else:
-            try:
-                self.yagi_frame.grid_remove()
-            except Exception:
-                pass
+            # Yagi frame'ini gizle
+            self.yagi_frame.grid_remove()
             self.status_var.set(f"{self.anten_tipi.get()} seçildi.")
 
     def _validate_float(self, value):
@@ -177,6 +178,7 @@ class AntenTasarimUygulamasi:
                 if eleman_sayisi < 2:
                     messagebox.showerror("Hata","Yagi-Uda için en az 2 eleman girin.")
                     return
+                # Eleman sayısı 2'den büyükse standart (varsayılan) hesaplama
                 sonuclar = self.yagi_uda_hesapla(frekans_mhz, eleman_sayisi)
             else:
                 messagebox.showerror("Hata","Bilinmeyen anten tipi.")
@@ -191,34 +193,43 @@ class AntenTasarimUygulamasi:
     def monopol_hesapla(self, frekans_mhz):
         f = frekans_mhz*1e6
         lam = self.c/f
-        uzun = lam/4.0
+        uzun = lam/4.0 * 0.95 # Kısaltma faktörü uygulandı
         return {"tip":"Monopol","frekans":frekans_mhz,"dalga_boyu":lam,"uzunluk":uzun,"empedans":36.5,"kazanc":5.0,"aciklama":"1/4 dalga monopol (yaklaşık)"}
 
     def dipol_hesapla(self, frekans_mhz):
         f = frekans_mhz*1e6
         lam = self.c/f
-        efek = 0.95*(lam/2.0)
+        efek = 0.95*(lam/2.0) # Kısaltma faktörü uygulandı
         return {"tip":"Dipol","frekans":frekans_mhz,"dalga_boyu":lam,"uzunluk":efek,"empedans":73,"kazanc":2.15,"aciklama":"Yarım dalga dipol (efektif)"}
 
     def yagi_uda_hesapla(self, frekans_mhz, eleman_sayisi,
-                        aktif_factor=0.48, reflektor_factor=1.03,
-                        direktor_base_factor=0.46,
-                        ref_aktif_factor=0.20, aktif_dir_factor=0.18):
+                          aktif_factor=0.48, reflektor_factor=1.03,
+                          direktor_base_factor=0.46,
+                          ref_aktif_factor=0.20, aktif_dir_factor=0.18):
         f = frekans_mhz*1e6
         lam = self.c/f
-        aktif = aktif_factor * lam
+        
+        # Aktif ve Reflektör uzunlukları (aktif faktör lambdanın yarısı üzerinden hesaplanmalı)
+        aktif = aktif_factor * lam # Yarım dalga dipol için lambda/2 yaklaşık 0.5*lambda
         reflektor = reflektor_factor * aktif
+        
+        # Direktör uzunlukları
         direktor_base = direktor_base_factor * lam
-        ref_aktif_mesafe = ref_aktif_factor * lam
-        aktif_dir_mesafe = aktif_dir_factor * lam
         direktor_sayisi = max(0, eleman_sayisi-2)
         direktorler = []
         for i in range(direktor_sayisi):
-            fakt = 1.0 - 0.015*(i+1)
+            # Direktör uzunlukları kademeli olarak azalır (basit model)
+            fakt = 1.0 - 0.015*(i+1) 
             direktorler.append(direktor_base * fakt)
+        
+        # Eleman aralıkları
+        ref_aktif_mesafe = ref_aktif_factor * lam
+        aktif_dir_mesafe = aktif_dir_factor * lam
+        
         elemanlar = {"reflektör":reflektor,"aktif":aktif,"direktörler":direktorler}
+        # Basit kazanç tahmini
         kazanc = 7.0 + 0.8 * direktor_sayisi
-        emp = 50
+        emp = 50 
         return {"tip":"Yagi-Uda","frekans":frekans_mhz,"dalga_boyu":lam,"eleman_sayisi":eleman_sayisi,
                 "elemanlar":elemanlar,"mesafeler":{"ref_aktif":ref_aktif_mesafe,"aktif_dir":aktif_dir_mesafe},
                 "empedans":emp,"kazanc":kazanc,"aciklama":f"{eleman_sayisi} elemanlı Yagi-Uda (yaklaşık)"}
@@ -236,13 +247,13 @@ class AntenTasarimUygulamasi:
             ttk.Label(self.sonuc_frame, text=f"Eleman Sayısı: {sonuclar['eleman_sayisi']}").grid(row=row,column=0,sticky="w"); row+=1
             ttk.Label(self.sonuc_frame, text="Eleman Uzunlukları (cm):",font=("Segoe UI",10,"bold")).grid(row=row,column=0,sticky="w",pady=(6,2)); row+=1
             ele=sonuclar['elemanlar']
-            ttk.Label(self.sonuc_frame, text=f"  Reflektör: {ele['reflektör']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
-            ttk.Label(self.sonuc_frame, text=f"  Aktif: {ele['aktif']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
+            ttk.Label(self.sonuc_frame, text=f"  Reflektör: {ele['reflektör']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
+            ttk.Label(self.sonuc_frame, text=f"  Aktif: {ele['aktif']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
             for idx,dlen in enumerate(ele['direktörler'],start=1):
-                ttk.Label(self.sonuc_frame, text=f"  Direktör {idx}: {dlen*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
+                ttk.Label(self.sonuc_frame, text=f"  Direktör {idx}: {dlen*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
             ttk.Label(self.sonuc_frame, text="Mesafeler (cm):",font=("Segoe UI",10,"bold")).grid(row=row,column=0,sticky="w",pady=(6,2)); row+=1
-            ttk.Label(self.sonuc_frame, text=f"  Ref-Aktif: {sonuclar['mesafeler']['ref_aktif']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
-            ttk.Label(self.sonuc_frame, text=f"  Aktif-Direktör aralığı: {sonuclar['mesafeler']['aktif_dir']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
+            ttk.Label(self.sonuc_frame, text=f"  Ref-Aktif: {sonuclar['mesafeler']['ref_aktif']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
+            ttk.Label(self.sonuc_frame, text=f"  Aktif-Direktör aralığı: {sonuclar['mesafeler']['aktif_dir']*100:.2f} cm").grid(row=row,column=0,sticky="w"); row+=1
         ttk.Label(self.sonuc_frame, text=f"Empedans (yaklaşık): {sonuclar['empedans']} Ω").grid(row=row,column=0,sticky="w",pady=(6,2)); row+=1
         ttk.Label(self.sonuc_frame, text=f"Kazanç (yaklaşık): {sonuclar['kazanc']:.2f} dBi").grid(row=row,column=0,sticky="w"); row+=1
         ttk.Label(self.sonuc_frame, text=f"Açıklama: {sonuclar.get('aciklama','')}").grid(row=row,column=0,sticky="w",pady=(6,2)); row+=1
@@ -270,151 +281,160 @@ class AntenTasarimUygulamasi:
     def _monopol_gorsel(self, ax, sonuclar):
         uzun_cm = sonuclar['uzunluk']*100
         ax.plot([0,0],[0,uzun_cm],linewidth=5)
-        ax.plot([-40,40],[0,0],linewidth=2)
-        ax.scatter([0],[0],s=50,c='red',zorder=5)
+        ax.plot([-40,40],[0,0],linewidth=2, color='tab:gray', linestyle='--') # Zemin/Karşı ağırlık
+        ax.scatter([0],[0],s=50,c='red',zorder=5) # Besleme noktası
         ax.set_xlim(-60,60)
         ax.set_ylim(-20, max(uzun_cm+20,50))
+        ax.set_aspect('equal', adjustable='box') # Oranı koru
+        ax.text(0, uzun_cm+5, f"L={uzun_cm:.2f} cm", ha='center')
 
     def _dipol_gorsel(self, ax, sonuclar):
         toplam_cm = sonuclar['uzunluk']*100
         yari = toplam_cm/2.0
-        ax.plot([-yari,0],[0,0],linewidth=5)
-        ax.plot([0,yari],[0,0],linewidth=5)
-        ax.scatter([0],[0],s=50,c='red')
+        ax.plot([-yari,0],[0,0],linewidth=5, color='tab:blue')
+        ax.plot([0,yari],[0,0],linewidth=5, color='tab:blue')
+        ax.scatter([0],[0],s=50,c='red',zorder=5) # Besleme noktası
         ax.set_xlim(-yari*1.3,yari*1.3)
         ax.set_ylim(-max(10,yari*0.2), max(10,yari*0.2))
+        ax.set_aspect('equal', adjustable='box') # Oranı koru
+        ax.text(0, max(10,yari*0.2)*0.8, f"Toplam L={toplam_cm:.2f} cm", ha='center')
 
     def _yagi_gorsel(self, ax, sonuclar):
         ele = sonuclar['elemanlar']
         ref_aktif = sonuclar['mesafeler']['ref_aktif']*100
         aktif_dir = sonuclar['mesafeler']['aktif_dir']*100
+        
         pozisyon = []
         poz_ref = 0.0
         poz_aktif = poz_ref + ref_aktif
+        
         pozisyon.append(("Reflektör", poz_ref, ele['reflektör']*100))
         pozisyon.append(("Aktif", poz_aktif, ele['aktif']*100))
+        
+        current_pos = poz_aktif
         for i,dlen in enumerate(ele['direktörler']):
-            poz = poz_aktif + (i+1)*aktif_dir
-            pozisyon.append((f"Direktör {i+1}", poz, dlen*100))
+            current_pos += aktif_dir # Tüm direktörler aynı aralıkta kabul edildi
+            pozisyon.append((f"Direktör {i+1}", current_pos, dlen*100))
+
         xs = [p[1] for p in pozisyon]
         lengths = [p[2] for p in pozisyon]
-        minx, maxx = min(xs)-20, max(xs)+20
+        
+        if not xs: # Eleman yoksa (2 elemanlı Yagi için reflektör ve aktif var)
+             minx, maxx = -10, 10
+        else:
+            minx, maxx = min(xs)-20, max(xs)+20
+        
         max_x_range = maxx - minx if (maxx - minx) > 0 else 1.0
         max_len = max(lengths) if lengths else 1.0
+        
         # Görsel sıkıştırma faktörü: dikey uzunlukları yatay ölçeğe göre dengeler
-        desired_vspan_fraction = 0.25  # dikey gösterim yatayın %25'i kadar olsun
+        desired_vspan_fraction = 0.25 
         scale_factor = 1.0
         if max_len > max_x_range * desired_vspan_fraction:
             scale_factor = max_len / (max_x_range * desired_vspan_fraction)
+            
         # çizim: boom
-        ax.plot([minx, maxx], [0,0], color='black', linewidth=2)
+        ax.plot([min(xs)-5, max(xs)+5], [0,0], color='gray', linewidth=2, zorder=1)
+        
         # elemanları çiz, fakat yükseklikleri scale_factor ile küçült
         colors = {'Reflektör':'tab:red','Aktif':'tab:blue'}
+        vpad = 0.0 # Dikey max uzunluk
         for label, xpos, length in pozisyon:
             hy = (length/2.0) / scale_factor
+            vpad = max(vpad, hy)
             color = colors.get(label.split()[0],'tab:green')
-            ax.plot([xpos,xpos], [-hy, hy], linewidth=4, color=color)
+            ax.plot([xpos,xpos], [-hy, hy], linewidth=4, color=color, zorder=2)
             # etiketleri biraz üstte göster; gerçek uzunluğu da yaz
-            ax.text(xpos, hy + 5, f"{label}\n({length:.1f} cm)", ha='center', fontsize=9)
-        ax.scatter([poz_aktif],[0],s=60,c='red',zorder=5)
+            ax.text(xpos, hy + 0.05*vpad*scale_factor, f"{label}\n({length:.1f} cm)", ha='center', fontsize=9, rotation=45, color=color)
+            
+        ax.scatter([poz_aktif],[0],s=60,c='red',zorder=5) # Besleme
         ax.set_xlim(minx-10, maxx+10)
-        # Y eksenini sıkıştırılmış değerlerle ayarla; kullanıcıya not ekle
-        vpad = max([ (l/2.0)/scale_factor for l in lengths ]) if lengths else 10
-        ax.set_ylim(-vpad*1.6, vpad*1.6)
-        ax.text(minx+10, -vpad*1.4, f"(DİKKAT: Dikey gösterim sıkıştırıldı; etiketler gerçek uzunlukları gösterir)",
-                fontsize=8, color='gray')
-
-    # Basit Yagi optimizasyon dialog + grid-search
-    def yagi_optimize_dialog(self):
-        # Parametreleri soru kutuları ile al
-        try:
-            eleman = int(self.eleman_sayisi.get())
-            if eleman < 2:
-                messagebox.showerror("Hata","Eleman sayısı en az 2 olmalı.")
-                return
-        except Exception:
-            messagebox.showerror("Hata","Geçersiz eleman sayısı.")
-            return
-        # Basit parametre aralıklarını sor
-        # Direktör faktör aralığı (örn 0.42 - 0.50)
-        d_min = simpledialog.askfloat("Optimize - Direktör uzunluk faktörü (min)",
-                                      "Direktör uzunluk faktörü min (lambda çarpanı, örn 0.42):", initialvalue=0.44, minvalue=0.30, maxvalue=0.60)
-        if d_min is None: return
-        d_max = simpledialog.askfloat("Optimize - Direktör uzunluk faktörü (max)",
-                                      "Direktör uzunluk faktörü max (lambda çarpanı, örn 0.49):", initialvalue=0.48, minvalue=d_min, maxvalue=0.9)
-        if d_max is None: return
-        s_min = simpledialog.askfloat("Optimize - Aktif-Direktör aralığı çarpanı (min)",
-                                      "Aralık çarpanı min (ör. 0.14):", initialvalue=0.14, minvalue=0.08, maxvalue=0.4)
-        if s_min is None: return
-        s_max = simpledialog.askfloat("Optimize - Aktif-Direktör aralığı çarpanı (max)",
-                                      "Aralık çarpanı max (ör. 0.22):", initialvalue=0.20, minvalue=s_min, maxvalue=0.6)
-        if s_max is None: return
-
-        # grid çözümü: az sayıda adım ile hızlı tarama
-        steps = 6
-        d_vals = np.linspace(d_min, d_max, steps)
-        s_vals = np.linspace(s_min, s_max, steps)
-        # ayrıca aktif_factor yakın etrafı küçük tarama
-        af_vals = np.linspace(0.46, 0.50, 3)
-
-        best = None
-        best_params = None
-        self.status_var.set("Optimizasyon başladı...")
-        self.root.update_idletasks()
-
-        # Basit heuristik: kazanç = 7 + 0.8*ndirector - spacing_penalty - length_penalty
-        for af in af_vals:
-            for dv in d_vals:
-                for sv in s_vals:
-                    # model hesap
-                    son = self.yagi_uda_hesapla(float(self.frekans.get()), eleman,
-                                                aktif_factor=af,
-                                                reflektor_factor=1.03,
-                                                direktor_base_factor=dv,
-                                                ref_aktif_factor=sv,
-                                                aktif_dir_factor=sv)
-                    nd = max(0, eleman-2)
-                    gain = son['kazanc']
-                    # penalty'ler: ideal spacing ~0.18*lambda, ideal direktor_base ~0.46*lambda
-                    lam = son['dalga_boyu']
-                    ideal_spacing = 0.18*lam
-                    spacing = son['mesafeler']['aktif_dir']
-                    spacing_pen = 5.0 * abs(spacing - ideal_spacing) / (ideal_spacing + 1e-9)
-                    direktor_base = son['elemanlar']['direktörler'][0] if son['elemanlar']['direktörler'] else 0.46*lam
-                    ideal_db = 0.46*lam
-                    length_pen = 6.0 * abs(direktor_base - ideal_db) / (ideal_db + 1e-9)
-                    score = gain - spacing_pen - length_pen
-                    if (best is None) or (score > best):
-                        best = score
-                        best_params = {"aktif_factor":af, "direktor_base_factor":dv, "spacing_factor":sv, "score":score, "result":son}
-
-        if best_params is None:
-            messagebox.showinfo("Sonuç", "Optimizasyon sonuç üretmedi.")
-            self.status_var.set("Optimizasyon iptal edildi.")
-            return
-
-        # Sonuç göster
-        res = best_params['result']
-        score = best_params['score']
-        msg = (f"En iyi parametreler (basit tarama):\n"
-               f"Aktif faktör: {best_params['aktif_factor']:.3f}\n"
-               f"Direktör base faktör: {best_params['direktor_base_factor']:.3f}\n"
-               f"Aralık faktörü: {best_params['spacing_factor']:.3f}\n\n"
-               f"Tahmini kazanç (heuristik): {res['kazanc']:.2f} dBi\n"
-               f"Skor: {score:.2f}\n\n"
-               "Bulunan parametrelerle son anten tasarımını görüntülemek ister misiniz?")
-        if messagebox.askyesno("Optimizasyon Sonucu", msg):
-            # Eleman sayısını ve hesap parametrelerini kullanarak tekrar hesapla/göster
-            yeni = self.yagi_uda_hesapla(float(self.frekans.get()), res['eleman_sayisi'],
-                                         aktif_factor=best_params['aktif_factor'],
-                                         direktor_base_factor=best_params['direktor_base_factor'],
-                                         ref_aktif_factor=best_params['spacing_factor'],
-                                         aktif_dir_factor=best_params['spacing_factor'])
-            self.sonuclari_goster(yeni)
-            self.anten_gorsel_olustur(yeni)
-            self.status_var.set("Optimizasyon tamamlandı ve sonuç gösterildi.")
+        
+        # Y eksenini sıkıştırılmış değerlerle ayarla
+        if lengths:
+            ax.set_ylim(-vpad*1.8, vpad*1.8)
         else:
-            self.status_var.set("Optimizasyon tamamlandı.")
+            ax.set_ylim(-10, 10) # Fallback
+            
+        # Görselleştirme notu
+        ax.text(minx+5, -vpad*1.5, f"(DİKKAT: Dikey gösterim sıkıştırıldı; etiketler gerçek uzunlukları gösterir)",
+                  fontsize=8, color='gray')
+        ax.set_aspect('auto')
+
+
+    def yagi_optimize_dialog(self):
+        """
+        Yagi-Uda optimizasyonunu grid search ile başlatan fonksiyon.
+        """
+        try:
+            frekans = float(self.frekans.get())
+            eleman_sayisi = int(self.eleman_sayisi.get())
+            if eleman_sayisi < 3:
+                messagebox.showerror("Hata","Yagi-Uda için eleman sayısı en az 3 olmalıdır (R, A, D1).")
+                return
+        except ValueError:
+            messagebox.showerror("Hata","Geçersiz frekans veya eleman sayısı.")
+            return
+        
+        # Grid Search Parametrelerini soru kutuları ile al
+        d_min = simpledialog.askfloat("Optimize - Direktör uzunluk faktörü (min)",
+                                      "Direktör uzunluk faktörü min (lambda çarpanı, örn 0.44):", 
+                                      initialvalue=0.44, minvalue=0.30, maxvalue=0.60)
+        if d_min is None: return
+        
+        d_max = simpledialog.askfloat("Optimize - Direktör uzunluk faktörü (max)",
+                                      "Direktör uzunluk faktörü max (lambda çarpanı, örn 0.48):", 
+                                      initialvalue=0.48, minvalue=d_min, maxvalue=0.9)
+        if d_max is None: return
+        
+        s_step = simpledialog.askfloat("Optimize - Grid Adımı",
+                                       "Parametrik grid adımı (örn. 0.005):", 
+                                       initialvalue=0.005, minvalue=0.001, maxvalue=0.1)
+        if s_step is None: return
+        
+        # Optimize fonksiyonunu çağır
+        try:
+            self.status_var.set("Optimizasyon başladı... Lütfen bekleyin.")
+            self.root.update_idletasks()
+            
+            best_cfg = optimize_yagi(
+                target_freq_mhz=frekans,
+                element_count=eleman_sayisi,
+                step=s_step
+            )
+
+            if best_cfg is None:
+                messagebox.showinfo("Sonuç", "Optimizasyon sonuç üretmedi.")
+                self.status_var.set("Optimizasyon tamamlandı, sonuç bulunamadı.")
+                return
+
+            # Sonuçları göster
+            res = self.yagi_uda_hesapla(frekans, eleman_sayisi,
+                                        aktif_factor=best_cfg['active'] / (best_cfg['wavelength']), # Oranları hesapla
+                                        direktor_base_factor=best_cfg['director'] / (best_cfg['wavelength']),
+                                        ref_aktif_factor=best_cfg['spacing'] / best_cfg['wavelength'],
+                                        aktif_dir_factor=best_cfg['spacing'] / best_cfg['wavelength'])
+
+            msg = (f"En iyi parametreler (Grid Search):\n"
+                   f"Reflektör Uzunluğu: {best_cfg['reflector']*100:.2f} cm\n"
+                   f"Aktif Uzunluğu: {best_cfg['active']*100:.2f} cm\n"
+                   f"Direktör Uzunluğu (Base): {best_cfg['director']*100:.2f} cm\n"
+                   f"Aralık (Ref-Aktif ve Aktif-Dir): {best_cfg['spacing']*100:.2f} cm\n\n"
+                   f"Tahmini Kazanç: {best_cfg['gain']:.2f} dBi\n"
+                   f"Tahmini VSWR: {best_cfg['swr']:.2f}\n\n"
+                   "Bulunan parametrelerle son anten tasarımını görüntülemek ister misiniz?")
+            
+            if messagebox.askyesno("Optimizasyon Sonucu", msg):
+                self.sonuclari_goster(res)
+                self.anten_gorsel_olustur(res)
+                self.status_var.set("Optimizasyon tamamlandı ve sonuç gösterildi.")
+            else:
+                self.status_var.set("Optimizasyon tamamlandı.")
+
+        except Exception as e:
+            messagebox.showerror("Hata", f"Optimizasyon sırasında sorun oluştu:\n{e}")
+            self.status_var.set("Optimizasyon hatası.")
+
 
 def main():
     root = tk.Tk()
@@ -422,6 +442,4 @@ def main():
     root.mainloop()
 
 if __name__ == "__main__":
-    
-
     main()
