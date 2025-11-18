@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 
-# Optimize modülünü içe aktarırken optimize_yagi fonksiyonunun imzasını kontrol ettik.
+# Optimize modülünü içe aktar
 from yagi_optimizasyon_modulu import optimize_yagi
 
 
@@ -40,6 +40,7 @@ class AntenTasarimUygulamasi:
         self.frekans = tk.StringVar(value=str(self.bantlar[self.bant_sec.get()]))
         self.vswr = tk.StringVar(value="1.5")
         self.eleman_sayisi = tk.StringVar(value="3")
+        self.cap_mm = tk.StringVar(value="4.0") # YENİ: Eleman Çapı (mm)
 
         self._create_widgets()
 
@@ -69,17 +70,25 @@ class AntenTasarimUygulamasi:
         vswr_entry = ttk.Entry(top, textvariable=self.vswr, width=10)
         vswr_entry.grid(row=2, column=3, sticky="w", padx=(6,12), pady=(8,0))
 
+        # YENİ ALAN: Çap
+        ttk.Label(top, text="Eleman Çapı (mm):").grid(row=2, column=4, sticky="w", padx=(12,0), pady=(8,0))
+        cap_entry = ttk.Entry(top, textvariable=self.cap_mm, validate='key', validatecommand=vcmd_float, width=10)
+        cap_entry.grid(row=2, column=5, sticky="w", padx=(6,12), pady=(8,0))
+
         # Yagi parametreleri
         self.yagi_frame = ttk.LabelFrame(top, text="Yagi-Uda Parametreleri", padding=(8,6))
-        self.yagi_frame.grid(row=3, column=0, columnspan=8, sticky="we", pady=(10,0))
+        # grid'deki konumunu 3. satırda tut
+        self.yagi_frame.grid(row=3, column=0, columnspan=8, sticky="we", pady=(10,0)) 
+        
         ttk.Label(self.yagi_frame, text="Eleman Sayısı (toplam):").grid(row=0, column=0, sticky="w")
         vcmd_int = (self.root.register(self._validate_int), '%P')
         eleman_entry = ttk.Entry(self.yagi_frame, textvariable=self.eleman_sayisi, validate='key', validatecommand=vcmd_int, width=8)
         eleman_entry.grid(row=0, column=1, sticky="w", padx=(6,12))
 
-        # Butonlar (her durumda görünür)
+        # Butonlar
         btn_frame = ttk.Frame(top)
-        btn_frame.grid(row=2, column=4, rowspan=2, sticky="e", padx=(20,0))
+        # Butonları çap ve eleman sayısının yanına hizala
+        btn_frame.grid(row=2, column=6, rowspan=2, sticky="e", padx=(20,0)) 
         hesapla_btn = ttk.Button(btn_frame, text="Anteni Hesapla", command=self.hesapla)
         hesapla_btn.grid(row=0, column=0, sticky="e", padx=6)
         sifirla_btn = ttk.Button(btn_frame, text="Sıfırla", command=self.sifirla)
@@ -112,6 +121,8 @@ class AntenTasarimUygulamasi:
 
         self._anten_tipi_degisti()
 
+    # ... diğer metotlar (Hakkında, bant_degisti, tipi_degisti, validasyonlar) aynı ...
+    
     def _hakkinda(self):
         messagebox.showinfo("Hakkında",
             "Anten Tasarım Uygulaması\nBasit hesaplar ve görselleştirme sağlar.\nOptimizasyon: küçük parametrik tarama (heuristik).")
@@ -124,11 +135,9 @@ class AntenTasarimUygulamasi:
 
     def _anten_tipi_degisti(self):
         if self.anten_tipi.get() == "Yagi-Uda":
-            # Yagi frame'ini göster
             self.yagi_frame.grid(row=3, column=0, columnspan=8, sticky="we", pady=(10,0))
             self.status_var.set("Yagi-Uda seçildi.")
         else:
-            # Yagi frame'ini gizle
             self.yagi_frame.grid_remove()
             self.status_var.set(f"{self.anten_tipi.get()} seçildi.")
 
@@ -152,6 +161,8 @@ class AntenTasarimUygulamasi:
         self.vswr.set("1.5")
         self.anten_tipi.set("Dipol")
         self.eleman_sayisi.set("3")
+        self.cap_mm.set("4.0") # YENİ: Çapı sıfırla
+        
         for w in self.sonuc_frame.winfo_children():
             w.destroy()
         for w in self.gorsel_frame.winfo_children():
@@ -159,6 +170,7 @@ class AntenTasarimUygulamasi:
         self.status_var.set("Sıfırlandı")
 
     def hesapla(self):
+        # 1. Frekans Kontrolü
         try:
             frekans_mhz = float(self.frekans.get())
             if frekans_mhz <= 0:
@@ -167,19 +179,28 @@ class AntenTasarimUygulamasi:
             messagebox.showerror("Hata", "Geçersiz frekans. Lütfen MHz olarak pozitif sayı girin.")
             return
 
+        # 2. Çap Kontrolü (YENİ)
+        try:
+            cap_m = float(self.cap_mm.get()) / 1000.0 # mm'yi metreye çevir
+            if cap_m <= 0:
+                raise ValueError
+        except Exception:
+            messagebox.showerror("Hata", "Geçersiz eleman çapı. Lütfen mm olarak pozitif sayı girin.")
+            return
+
         tip = self.anten_tipi.get()
         try:
             if tip == "Monopol":
-                sonuclar = self.monopol_hesapla(frekans_mhz)
+                sonuclar = self.monopol_hesapla(frekans_mhz, cap_m) # cap_m'i geçir
             elif tip == "Dipol":
-                sonuclar = self.dipol_hesapla(frekans_mhz)
+                sonuclar = self.dipol_hesapla(frekans_mhz, cap_m) # cap_m'i geçir
             elif tip == "Yagi-Uda":
                 eleman_sayisi = int(self.eleman_sayisi.get())
                 if eleman_sayisi < 2:
                     messagebox.showerror("Hata","Yagi-Uda için en az 2 eleman girin.")
                     return
-                # Eleman sayısı 2'den büyükse standart (varsayılan) hesaplama
-                sonuclar = self.yagi_uda_hesapla(frekans_mhz, eleman_sayisi)
+                # cap_m'i yagi_uda_hesapla'ya geçir
+                sonuclar = self.yagi_uda_hesapla(frekans_mhz, eleman_sayisi, cap_m=cap_m) 
             else:
                 messagebox.showerror("Hata","Bilinmeyen anten tipi.")
                 return
@@ -190,50 +211,70 @@ class AntenTasarimUygulamasi:
         self.sonuclari_goster(sonuclar)
         self.anten_gorsel_olustur(sonuclar)
 
-    def monopol_hesapla(self, frekans_mhz):
+    # cap_m parametresi eklendi, kısaltma faktörü (k) çapa göre ayarlandı.
+    def monopol_hesapla(self, frekans_mhz, cap_m): 
         f = frekans_mhz*1e6
         lam = self.c/f
-        uzun = lam/4.0 * 0.95 # Kısaltma faktörü uygulandı
-        return {"tip":"Monopol","frekans":frekans_mhz,"dalga_boyu":lam,"uzunluk":uzun,"empedans":36.5,"kazanc":5.0,"aciklama":"1/4 dalga monopol (yaklaşık)"}
+        
+        # Basit Kısaltma Faktörü Modeli: Kalınlık kısaltma ihtiyacını artırır
+        ratio = lam / cap_m
+        k = 0.985 - 0.005 * math.log10(ratio) # Çap etkisini içeren heuristik
+        
+        uzun = (lam/4.0) * k
+        return {"tip":"Monopol","frekans":frekans_mhz,"dalga_boyu":lam,"uzunluk":uzun,"empedans":36.5,
+                "kazanc":5.0,"aciklama":f"1/4 dalga monopol (k={k:.3f}, Çap: {cap_m*1000:.1f}mm)"}
 
-    def dipol_hesapla(self, frekans_mhz):
+    # cap_m parametresi eklendi, kısaltma faktörü (k) çapa göre ayarlandı.
+    def dipol_hesapla(self, frekans_mhz, cap_m): 
         f = frekans_mhz*1e6
         lam = self.c/f
-        efek = 0.95*(lam/2.0) # Kısaltma faktörü uygulandı
-        return {"tip":"Dipol","frekans":frekans_mhz,"dalga_boyu":lam,"uzunluk":efek,"empedans":73,"kazanc":2.15,"aciklama":"Yarım dalga dipol (efektif)"}
+        
+        # Basit Kısaltma Faktörü Modeli:
+        ratio = lam / cap_m
+        k = 0.985 - 0.005 * math.log10(ratio)
+        
+        efek = (lam/2.0) * k
+        return {"tip":"Dipol","frekans":frekans_mhz,"dalga_boyu":lam,"uzunluk":efek,"empedans":73,
+                "kazanc":2.15,"aciklama":f"Yarım dalga dipol (k={k:.3f}, Çap: {cap_m*1000:.1f}mm)"}
 
+    # cap_m parametresi eklendi ve hesaplamada kullanıldı
     def yagi_uda_hesapla(self, frekans_mhz, eleman_sayisi,
                           aktif_factor=0.48, reflektor_factor=1.03,
                           direktor_base_factor=0.46,
-                          ref_aktif_factor=0.20, aktif_dir_factor=0.18):
+                          ref_aktif_factor=0.20, aktif_dir_factor=0.18,
+                          cap_m=0.004): # cap_m varsayılan değerle eklendi
         f = frekans_mhz*1e6
         lam = self.c/f
         
-        # Aktif ve Reflektör uzunlukları (aktif faktör lambdanın yarısı üzerinden hesaplanmalı)
-        aktif = aktif_factor * lam # Yarım dalga dipol için lambda/2 yaklaşık 0.5*lambda
+        # Kısaltma faktörünü hesapla (basitleştirilmiş)
+        ratio = lam / cap_m
+        k = 0.985 - 0.005 * math.log10(ratio)
+        
+        # Aktif eleman ve Reflektör uzunlukları (kısaltma faktörü ile)
+        aktif = (aktif_factor * lam) * k
         reflektor = reflektor_factor * aktif
         
         # Direktör uzunlukları
-        direktor_base = direktor_base_factor * lam
+        direktor_base = (direktor_base_factor * lam) * k
         direktor_sayisi = max(0, eleman_sayisi-2)
         direktorler = []
         for i in range(direktor_sayisi):
-            # Direktör uzunlukları kademeli olarak azalır (basit model)
-            fakt = 1.0 - 0.015*(i+1) 
+            fakt = 1.0 - 0.015*(i+1)
             direktorler.append(direktor_base * fakt)
-        
-        # Eleman aralıkları
+            
+        # Aralıklar aynı kaldı (çapa bağlı değil)
         ref_aktif_mesafe = ref_aktif_factor * lam
         aktif_dir_mesafe = aktif_dir_factor * lam
         
         elemanlar = {"reflektör":reflektor,"aktif":aktif,"direktörler":direktorler}
-        # Basit kazanç tahmini
         kazanc = 7.0 + 0.8 * direktor_sayisi
-        emp = 50 
+        emp = 50
         return {"tip":"Yagi-Uda","frekans":frekans_mhz,"dalga_boyu":lam,"eleman_sayisi":eleman_sayisi,
                 "elemanlar":elemanlar,"mesafeler":{"ref_aktif":ref_aktif_mesafe,"aktif_dir":aktif_dir_mesafe},
-                "empedans":emp,"kazanc":kazanc,"aciklama":f"{eleman_sayisi} elemanlı Yagi-Uda (yaklaşık)"}
-
+                "empedans":emp,"kazanc":kazanc,
+                "aciklama":f"{eleman_sayisi} elemanlı Yagi-Uda (yaklaşık, Çap: {cap_m*1000:.1f}mm)"}
+    
+    # ... sonuclari_goster, anten_gorsel_olustur ve yardımcı görsel metotları aynı ...
     def sonuclari_goster(self, sonuclar):
         for w in self.sonuc_frame.winfo_children():
             w.destroy()
@@ -258,7 +299,7 @@ class AntenTasarimUygulamasi:
         ttk.Label(self.sonuc_frame, text=f"Kazanç (yaklaşık): {sonuclar['kazanc']:.2f} dBi").grid(row=row,column=0,sticky="w"); row+=1
         ttk.Label(self.sonuc_frame, text=f"Açıklama: {sonuclar.get('aciklama','')}").grid(row=row,column=0,sticky="w",pady=(6,2)); row+=1
         self.status_var.set("Hesaplama tamamlandı.")
-
+        
     def anten_gorsel_olustur(self, sonuclar):
         for w in self.gorsel_frame.winfo_children():
             w.destroy()
@@ -285,7 +326,7 @@ class AntenTasarimUygulamasi:
         ax.scatter([0],[0],s=50,c='red',zorder=5) # Besleme noktası
         ax.set_xlim(-60,60)
         ax.set_ylim(-20, max(uzun_cm+20,50))
-        ax.set_aspect('equal', adjustable='box') # Oranı koru
+        ax.set_aspect('equal', adjustable='box') 
         ax.text(0, uzun_cm+5, f"L={uzun_cm:.2f} cm", ha='center')
 
     def _dipol_gorsel(self, ax, sonuclar):
@@ -296,7 +337,7 @@ class AntenTasarimUygulamasi:
         ax.scatter([0],[0],s=50,c='red',zorder=5) # Besleme noktası
         ax.set_xlim(-yari*1.3,yari*1.3)
         ax.set_ylim(-max(10,yari*0.2), max(10,yari*0.2))
-        ax.set_aspect('equal', adjustable='box') # Oranı koru
+        ax.set_aspect('equal', adjustable='box') 
         ax.text(0, max(10,yari*0.2)*0.8, f"Toplam L={toplam_cm:.2f} cm", ha='center')
 
     def _yagi_gorsel(self, ax, sonuclar):
@@ -313,13 +354,13 @@ class AntenTasarimUygulamasi:
         
         current_pos = poz_aktif
         for i,dlen in enumerate(ele['direktörler']):
-            current_pos += aktif_dir # Tüm direktörler aynı aralıkta kabul edildi
+            current_pos += aktif_dir 
             pozisyon.append((f"Direktör {i+1}", current_pos, dlen*100))
 
         xs = [p[1] for p in pozisyon]
         lengths = [p[2] for p in pozisyon]
         
-        if not xs: # Eleman yoksa (2 elemanlı Yagi için reflektör ve aktif var)
+        if not xs:
              minx, maxx = -10, 10
         else:
             minx, maxx = min(xs)-20, max(xs)+20
@@ -327,7 +368,6 @@ class AntenTasarimUygulamasi:
         max_x_range = maxx - minx if (maxx - minx) > 0 else 1.0
         max_len = max(lengths) if lengths else 1.0
         
-        # Görsel sıkıştırma faktörü: dikey uzunlukları yatay ölçeğe göre dengeler
         desired_vspan_fraction = 0.25 
         scale_factor = 1.0
         if max_len > max_x_range * desired_vspan_fraction:
@@ -336,32 +376,29 @@ class AntenTasarimUygulamasi:
         # çizim: boom
         ax.plot([min(xs)-5, max(xs)+5], [0,0], color='gray', linewidth=2, zorder=1)
         
-        # elemanları çiz, fakat yükseklikleri scale_factor ile küçült
         colors = {'Reflektör':'tab:red','Aktif':'tab:blue'}
-        vpad = 0.0 # Dikey max uzunluk
+        vpad = 0.0 
         for label, xpos, length in pozisyon:
             hy = (length/2.0) / scale_factor
             vpad = max(vpad, hy)
             color = colors.get(label.split()[0],'tab:green')
             ax.plot([xpos,xpos], [-hy, hy], linewidth=4, color=color, zorder=2)
-            # etiketleri biraz üstte göster; gerçek uzunluğu da yaz
             ax.text(xpos, hy + 0.05*vpad*scale_factor, f"{label}\n({length:.1f} cm)", ha='center', fontsize=9, rotation=45, color=color)
             
-        ax.scatter([poz_aktif],[0],s=60,c='red',zorder=5) # Besleme
+        ax.scatter([poz_aktif],[0],s=60,c='red',zorder=5)
         ax.set_xlim(minx-10, maxx+10)
         
-        # Y eksenini sıkıştırılmış değerlerle ayarla
         if lengths:
             ax.set_ylim(-vpad*1.8, vpad*1.8)
         else:
-            ax.set_ylim(-10, 10) # Fallback
+            ax.set_ylim(-10, 10) 
             
-        # Görselleştirme notu
         ax.text(minx+5, -vpad*1.5, f"(DİKKAT: Dikey gösterim sıkıştırıldı; etiketler gerçek uzunlukları gösterir)",
                   fontsize=8, color='gray')
         ax.set_aspect('auto')
 
 
+    # Basit Yagi optimizasyon dialog + grid-search
     def yagi_optimize_dialog(self):
         """
         Yagi-Uda optimizasyonunu grid search ile başlatan fonksiyon.
@@ -369,11 +406,12 @@ class AntenTasarimUygulamasi:
         try:
             frekans = float(self.frekans.get())
             eleman_sayisi = int(self.eleman_sayisi.get())
+            cap_m = float(self.cap_mm.get()) / 1000.0 # YENİ: Çapı al ve metreye çevir
             if eleman_sayisi < 3:
                 messagebox.showerror("Hata","Yagi-Uda için eleman sayısı en az 3 olmalıdır (R, A, D1).")
                 return
         except ValueError:
-            messagebox.showerror("Hata","Geçersiz frekans veya eleman sayısı.")
+            messagebox.showerror("Hata","Geçersiz frekans, eleman sayısı veya çap.")
             return
         
         # Grid Search Parametrelerini soru kutuları ile al
@@ -397,10 +435,12 @@ class AntenTasarimUygulamasi:
             self.status_var.set("Optimizasyon başladı... Lütfen bekleyin.")
             self.root.update_idletasks()
             
+            # element_cap_m parametresi eklendi
             best_cfg = optimize_yagi(
                 target_freq_mhz=frekans,
                 element_count=eleman_sayisi,
-                step=s_step
+                step=s_step,
+                element_cap_m=cap_m 
             )
 
             if best_cfg is None:
@@ -408,14 +448,15 @@ class AntenTasarimUygulamasi:
                 self.status_var.set("Optimizasyon tamamlandı, sonuç bulunamadı.")
                 return
 
-            # Sonuçları göster
+            # Sonuçları göstermek için yagi_uda_hesapla'yı çağır (cap_m'i de geç)
             res = self.yagi_uda_hesapla(frekans, eleman_sayisi,
-                                        aktif_factor=best_cfg['active'] / (best_cfg['wavelength']), # Oranları hesapla
+                                        aktif_factor=best_cfg['active'] / (best_cfg['wavelength']), 
                                         direktor_base_factor=best_cfg['director'] / (best_cfg['wavelength']),
                                         ref_aktif_factor=best_cfg['spacing'] / best_cfg['wavelength'],
-                                        aktif_dir_factor=best_cfg['spacing'] / best_cfg['wavelength'])
+                                        aktif_dir_factor=best_cfg['spacing'] / best_cfg['wavelength'],
+                                        cap_m=cap_m) # cap_m'i geçir!
 
-            msg = (f"En iyi parametreler (Grid Search):\n"
+            msg = (f"En iyi parametreler (Grid Search, Çap: {cap_m*1000:.1f}mm):\n" # Çap bilgisini ekle
                    f"Reflektör Uzunluğu: {best_cfg['reflector']*100:.2f} cm\n"
                    f"Aktif Uzunluğu: {best_cfg['active']*100:.2f} cm\n"
                    f"Direktör Uzunluğu (Base): {best_cfg['director']*100:.2f} cm\n"

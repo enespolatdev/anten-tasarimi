@@ -2,8 +2,7 @@
 """
 Basit Yagi Optimizasyon Modülü
 Bu modül, temel Yagi-Uda tasarımı için grid search tabanlı optimizasyon yapar.
-Parametreler: Reflektör uzunluğu, aktif eleman uzunluğu, direktör uzunluğu,
-eleman aralıkları.
+Çap (radius/diameter) parametresini kullanarak empedans ve SWR tahminini günceller.
 """
 import numpy as np
 import math
@@ -15,24 +14,39 @@ C = 299792458.0
 def estimate_gain(num_elements, spacing_factor):
     # Spacing factor lambdanın çarpanı (örneğin 0.18)
     base_gain = 2.15 # Dipol kazancı
-    # Eleman sayısına göre temel kazanç artışı
     gain_increase = 0.8 * (num_elements - 1)
-    # Aralık faktörüne göre ayar (çok dar veya çok geniş aralık ceza getirir)
     spacing_penalty = 10 * (spacing_factor - 0.18)**2 
     gain = base_gain + gain_increase - spacing_penalty
-    return max(3.0, gain) # Minimum bir değer tut
+    return max(3.0, gain) 
 
-# Empedans tahmini (50 Ohm'a yakınlaştıran kaba bir model)
-def estimate_impedance(ref_len, act_len, dir_len, spacing, wavelength):
+# Empedans tahmini (radius_m parametresi eklendi)
+def estimate_impedance(ref_len, act_len, dir_len, spacing, wavelength, radius_m): 
     # Tüm uzunluklar metre cinsinden
-    # Eleman uzunlukları lambda'ya göre ayarlanır
+    # Kalın elemanlar empedansı düşürür, bant genişliğini artırır.
+    
+    # L/a (Dalga boyu/Yarıçap) oranı
+    ratio_lambda_radius = wavelength / radius_m
+    
+    # Basitleştirilmiş Logaritmik Çap Düzeltmesi
+    # Empedans (Z) üzerinde kalınlığın etkisini gösteren kaba bir model
+    # Z ~ 60 * ln(2L/a)
+    # Bizim durumumuzda, empedansın 50 Ohm civarında kalınlık arttıkça hafifçe düştüğünü varsayalım.
+    # log_factor 
+    log_factor = math.log(ratio_lambda_radius) if ratio_lambda_radius > 0 else 1.0
+    
+    # 73 Ohm dipol empedansından yola çıkarak kalınlığa göre düzeltme
+    # İdeal dipol için L/a ~ 5000: log(5000) ~ 8.5
+    # Daha kalın elemanlar için log_factor düşer.
+    
+    # Basit bir yagi empedans modeli (yaklaşık 50 Ohm hedefi)
+    z_base = 50 + 10 * (8.5 - log_factor) / 8.5 # Kalınlık arttıkça Z düşer.
+    
+    # Eleman uzunlukları ve aralıklara göre ince ayar
     act_ratio = act_len / wavelength
-    ref_ratio = ref_len / wavelength
-    dir_ratio = dir_len / wavelength
     spacing_ratio = spacing / wavelength
     
-    # Empirik formül (yaklaşık)
-    z = 50 + 20 * (act_ratio - 0.47) - 10 * (spacing_ratio - 0.18)
+    # Aktif eleman uzunluğu rezonanstan sapınca ve aralık değişince empedans değişir.
+    z = z_base + 20 * (act_ratio - 0.47) - 10 * (spacing_ratio - 0.18) 
     
     return max(20.0, min(100.0, abs(z))) # Makul aralıkta tut
 
@@ -43,28 +57,28 @@ def estimate_swr(z, target_z=50):
     else:
         return abs(z) / target_z
 
-# Optimizasyon fonksiyonu
-def optimize_yagi(target_freq_mhz, element_count, step):
+# Optimizasyon fonksiyonu (element_cap_m parametresi eklendi)
+def optimize_yagi(target_freq_mhz, element_count, step, element_cap_m):
     
     freq_hz = target_freq_mhz * 1e6
     wavelength = C / freq_hz
     
-    # Eleman sayısını (Reflektör + Aktif + Direktörler) kullanarak direktör sayısını bul
     num_directors = element_count - 2
-    
     if num_directors < 0:
-        return None # Yagi en az 2 elemanlı olmalı
+        return None 
         
     best = None
+    radius_m = element_cap_m / 2.0 # Çapı yarıçapa çevir
     
-    # Optimizasyon aralıkları (lambda'nın çarpanları)
-    # Varsayılan değerler etrafında daha hassas arama
+    # Eleman uzunlukları için arama faktörleri (step ile belirlenen hassasiyet)
     ref_factors = np.arange(0.50 * 1.03 - 2*step, 0.50 * 1.03 + 2*step + step, step)
     act_factors = np.arange(0.50 - 2*step, 0.50 + 2*step + step, step)
     dir_factors = np.arange(0.46 - 2*step, 0.46 + 2*step + step, step)
     spacing_factors = np.arange(0.18 - 2*step, 0.18 + 2*step + step, step)
 
     for rf in ref_factors:
+        # Kısaltma faktörünü eleman kalınlığına göre burada hesaplayabiliriz
+        # Ancak basitlik için sadece empedans tahmininde kullanıyoruz.
         ref_len = rf * wavelength
         for af in act_factors:
             act_len = af * wavelength
@@ -73,15 +87,14 @@ def optimize_yagi(target_freq_mhz, element_count, step):
                 for sf in spacing_factors:
                     spacing = sf * wavelength
                     
-                    # Empedans ve SWR tahmini (kaba model)
-                    imp = estimate_impedance(ref_len, act_len, dir_len, spacing, wavelength)
+                    # Empedans tahmini (radius_m kullanıldı)
+                    imp = estimate_impedance(ref_len, act_len, dir_len, spacing, wavelength, radius_m) 
                     swr = estimate_swr(imp)
                     
                     # Kazanç tahmini
-                    gain = estimate_gain(element_count, sf) # sf = spacing_factor
+                    gain = estimate_gain(element_count, sf) 
                     
-                    # Amaç: Kazancı maksimize etmek ve SWR'yi minimize etmek
-                    # SWR = 1.0 için ceza 0; SWR > 1.5 için büyük ceza
+                    # SWR ceza puanı
                     swr_penalty = 10 * max(0, swr - 1.5) + (swr - 1.0) * 0.5
                     score = gain - swr_penalty
 
@@ -101,6 +114,6 @@ def optimize_yagi(target_freq_mhz, element_count, step):
     return best
 
 if __name__ == "__main__":
-    # Test çağrısı (2m bandı)
-    result = optimize_yagi(145.0, element_count=3, step=0.005)
+    # Test çağrısı (2m bandı, 4mm çap)
+    result = optimize_yagi(target_freq_mhz=145.0, element_count=3, step=0.005, element_cap_m=0.004) 
     print("Optimizasyon Sonucu:\n", result)
